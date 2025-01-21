@@ -12,5 +12,9 @@ setup(
         "neo",
         "sklearn",
         "matplotlib",
+        "seaborn"
+        "statsmodels",
+        "scikit-learn"
+        
     ],
 )

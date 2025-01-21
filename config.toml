@@ -1,6 +1,5 @@
-[paths]
-ephys_path = r'XX'
-
+revision_figures_path = 'G:/My Drive/WORKING_MEMORY/PAPER/2ND_SUBMISSION_NAT_NEURO/figures_for_resubmission/'
+path = 'G:/My Drive/WORKING_MEMORY/PAPER/ANALYSIS_figures/'
 
 
 # import toml

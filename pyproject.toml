@@ -8,6 +8,11 @@ authors = ["tiffany ona <tiffany.ona@gmail.com>"]
 python = "^3.8"
 numpy = "^1.21"
 pandas = "^1.3"
+statsmodels
+matplotlib
+seaborn
+elephant
+scikit-learn
 
 [build-system]
 requires = ["poetry>=1.0"]
