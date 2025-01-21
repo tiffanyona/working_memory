@@ -1,0 +1,11 @@
+# Ignore figures and datasets
+figures/
+datasets/
+
+# Ignore Python bytecode
+__pycache__/
+*.pyc
+
+# Ignore environment files
+.env
+.venv

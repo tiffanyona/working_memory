@@ -1,0 +1,8 @@
+[paths]
+ephys_path = r'XX'
+
+
+
+# import toml
+# config = toml.load('config.toml')
+# print(config['experiment']['odor_label'])
