@@ -813,3 +813,98 @@ def test(df,model, epoch='Stimulus_ON',initrange=-0.4,endrange=1.5,r=0.2, train_
     df_real = pd.concat([df_real,a_series], ignore_index=True)
     
     return df_real, df_iter
+
+def synch_trial(df, T, upper_plot, lower_plot, trial=0, start=-2, stop=0):
+    """
+    Synchronize and plot trial data for electrophysiological analysis.
+    Parameters:
+    df : pandas.DataFrame
+        DataFrame containing the trial data.
+    T : int
+        Trial number to synchronize.
+    upper_plot : matplotlib.axes.Axes
+        Axes object for the upper plot.
+    lower_plot : matplotlib.axes.Axes
+        Axes object for the lower plot.
+    trial : int, optional
+        Trial index for the plot title (default is 0).
+    start : int, optional
+        Start time for the analysis window in seconds (default is -2).
+    stop : int, optional
+        Stop time for the analysis window in seconds (default is 0).
+        
+    Returns:
+    None
+    """
+    dft = df.loc[df.trial ==T]
+    align='Stimulus_ON'
+    # stop = dft.delay.unique()[0]+5 # end of analyzed window
+    delay = dft.delay.unique()[0]
+    #Filter for the last 2 seconds of the ITI
+    dft = dft.loc[(dft['a_'+align]>start)&(dft['a_'+align]<stop)]
+    
+    # Recover amount of neurons that were being registered at that trial interval
+    n_neurons = len(df.cluster_id.unique())
+    times_spikes = dft['a_'+align].values
+    times_spikes = times_spikes*1000*ms #transform to ms
+    
+    ############################################################ Set the strat and end time of the train
+    stop_time =  stop*1000*ms ## End of the trial in ms
+    start_time = start*1000*ms ## Start of the trial in ms     
+    
+    ############################################################ Spiketrain
+    spiketrain = SpikeTrain(times_spikes, units=ms, t_stop=stop_time, t_start=start_time) 
+    
+    ############################################################ 
+    histogram_rate = time_histogram([spiketrain], 20*ms, output='rate')
+    times_ = histogram_rate.times.rescale(s)
+    firing_real = histogram_rate.rescale(histogram_rate.dimensionality).magnitude.flatten()
+    
+    real_std=np.std(firing_real) # Store the real std value
+    
+    #         t1_start = process_time() 
+    list_std = []
+    for i in range(surrogates):
+        # Create a random shuffle for the same amount of spikes in that interval
+        random_float_list = np.random.uniform(start, stop, len(times_spikes))
+        surrogate_spikes = np.array(random_float_list)*1000*ms #transform to ms
+        spiketrain = SpikeTrain(surrogate_spikes, units=ms, t_stop=stop_time, t_start=start_time) 
+    
+        histogram_rate = time_histogram([spiketrain], 20*ms, output='rate')
+        times_ = histogram_rate.times.rescale(s)
+        firing = histogram_rate.rescale(histogram_rate.dimensionality).magnitude.flatten()
+    
+        list_std.append(np.std(firing))
+    
+    # Organized by cluster_id and corrected for FR ____________________________
+    cluster_id=[]
+    FR_mean=[]
+    
+    for N in df.cluster_id.unique():
+        spikes = dft.loc[dft.cluster_id==N]['a_'+align].values
+        FR_mean.append(len(spikes)/abs(stop-start))
+        cluster_id.append(N)
+    
+    df_spikes = pd.DataFrame(list(zip(cluster_id,FR_mean)), columns =['cluster_id','FR'])
+    df_spikes = df_spikes.sort_values('FR')
+    df_spikes['new_order'] = np.arange(len(df_spikes))
+    
+    dft = pd.merge(df_spikes, dft, on=['cluster_id'])
+    
+    print('Synch:', real_std/np.mean(list_std), '; WM:', str(dft.WM_roll.unique()[0]))
+    
+    panel = upper_plot
+    panel.set_title(trial)
+    j=0
+    for N in dft.new_order.unique():
+        spikes = dft.loc[dft.new_order==N]['a_'+align].values
+        j+=1
+        panel.plot(spikes,np.repeat(j, len(spikes)), '|', markersize=1, color='black', zorder=1)
+    
+    panel = lower_plot
+    panel.plot(times_,firing_real/n_neurons*1000)
+    # y = np.arange(0,j+1,0.1)
+    # panel.fill_betweenx(y, cue_on,cue_off, color='grey', alpha=.4)
+    # panel.fill_betweenx(y, cue_off+delay,cue_off+delay+.2, color='beige', alpha=.8)
+    panel.set_ylim(0,15)
+    panel.set_ylabel('Firing rate (spks/s)')
