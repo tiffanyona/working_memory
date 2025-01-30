@@ -1,19 +1,14 @@
-[tool.poetry]
+[project]
 name = "working_memory"
 version = "0.1.0"
-description = "A brief description of your project"
-authors = ["tiffany ona <tiffany.ona@gmail.com>"]
+description = "Your project description here"
+authors = [{name = "Tiffany Ona", email = "tiffany.ona@example.com"}]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.poetry.dependencies]
 python = "^3.8"
 numpy = "^1.21"
 pandas = "^1.3"
-statsmodels
-matplotlib
-seaborn
-elephant
-scikit-learn
-
-[build-system]
-requires = ["poetry>=1.0"]
-build-backend = "poetry.masonry.api"
