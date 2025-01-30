@@ -79,12 +79,10 @@ def plot_results_session_summary(plot, df, colors, variables_combined = ['WM_rol
         real = np.mean(df_loop.groupby('session')[numeric_columns].mean(), axis=0).to_numpy()
         times = df_loop[numeric_columns].columns.astype(float)
 
-
         df_results = pd.DataFrame()
         df_results['times'] = times
         df_results['real'] = real
         df_results = df_results.sort_values(by='times')
-        
 
         if x_range == None:
             x_range = [min(times), max(times)]
@@ -133,8 +131,8 @@ def plot_results_session_summary(plot, df, colors, variables_combined = ['WM_rol
 def plot_results_session_summary_substract(fig, plot, df: pd.DataFrame, df_shuffle: pd.DataFrame, color, variable= 'WM_roll_1', 
                                  y_range = [-0.05, 0.3], x_range = None, epoch = 'Stimulus_ON', baseline=0.5):
     
-        df_loop = (df.loc[(df['trial_type'] == variable)].groupby('session').mean()
-                    - df_shuffle.loc[(df['trial_type'] == variable)].groupby('session').mean())
+        df_loop = (df.loc[(df['trial_type'] == variable)].groupby('session').mean()[numeric_columns]
+                    - df_shuffle.loc[(df['trial_type'] == variable)].groupby('session').mean()[numeric_columns])
 
         # Select only columns where the column name is a number or can be transformed to a number
         numeric_columns = df_loop.columns[df_loop.columns.to_series().apply(pd.to_numeric, errors='coerce').notna()]
@@ -603,12 +601,12 @@ def interval_extraction(df, cluster_list=[], decode='vector_answer', align='Dela
 
     # cluster_list = df_all.cluster_id.unique()
     df = df.sort_values('trial')
-
-    y = df.groupby('trial')[decode].mean()
     
     # Filter for the spikes that occur in the interval we are analyzing
     df = df.loc[(df['a_'+align] > start) & (df['a_'+align] < stop)]
 
+    y = df.groupby('trial')[decode].first()
+    
     df_final = pd.DataFrame()
     df_final = df.groupby(['trial', 'cluster_id']).count()
     df_final.reset_index(inplace=True)
