@@ -3,6 +3,7 @@ figures/
 datasets/
 data/
 extra_frames/ 
+videos/
 
 # Ignore Python bytecode
 __pycache__/
