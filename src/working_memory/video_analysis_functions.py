@@ -19,6 +19,11 @@ from matplotlib import animation
 
 class Extractor:
     def __init__(self, *, subject, session, h5, csv, video, timestamp, random_state=123, **kws):
+        """
+        Initializes the Extractor with paths and settings, loads and parses all required data,
+        and determines whether the session should be skipped based on log likelihood.
+        """
+        
         self.subject = subject
         self.session = session
         self.csv = csv
@@ -27,11 +32,11 @@ class Extractor:
         self.timestamp = Path(timestamp)
         self.rs = random_state
         self.rng = np.random.default_rng(random_state)
-        
         self.parse_tvec()
         self.parse_csv()
         self.load_h5_bodyparts()
-
+        # self.extract_frame()
+        
         # Check average log likelihood and decide whether to continue
         avg_ll = self.average_log_likelihood()
         threshold = -1.5  # adjust threshold as needed
@@ -40,14 +45,26 @@ class Extractor:
             self.skip = True
         else:
             self.skip = False
-            # self.extract_frame()
-
+            self.align_frames_with_behavior()
+            
     def parse_tvec(self):
-        with np.load(self.timestamp) as d:
-            self.tvec = d['arr_0']
+        """
+        Loads the timestamp vector (tvec) from a .npz file.
+        """
+        try:
+            with np.load(self.timestamp) as d:
+                self.tvec = d['arr_0']
+        except TypeError:
+            self.tvec = np.load(self.timestamp)
             
     def parse_csv(self):
+        """
+        Parses the behavioral CSV file, aligns time with frame indices, and selects a random trial
+        and a representative frame within that trial.
+        """
+        
         tvec = self.tvec
+        
         self.df = pd.read_csv(self.csv, sep=';', skiprows=6).rename(columns={
             "TYPE": "type",
             "PC-TIME": "pc_time",
@@ -96,9 +113,18 @@ class Extractor:
         self.chosen_frame = int(target_frame)
 
     def load_h5_bodyparts(self):
+        """
+        Loads DeepLabCut tracking data from an HDF5 file.
+        """
         self.dlc_df = pd.read_hdf(self.h5)
         
     def average_log_likelihood(self):
+        """
+        Computes the average log-likelihood across all body parts and frames.
+        Returns:
+            float or None: Log-likelihood value or None if not available.
+        """
+        
         scorer = self.dlc_df.columns.get_level_values(0)[0]
         bodyparts = self.dlc_df.columns.get_level_values(1).unique()
 
@@ -179,10 +205,18 @@ class Extractor:
             frame_df[f'{bp}_x'] = self.dlc_df[(scorer, bp, 'x')]
             frame_df[f'{bp}_y'] = self.dlc_df[(scorer, bp, 'y')]
             frame_df[f'{bp}_log'] = self.dlc_df[(scorer, bp, 'likelihood')]
+            
         self.frame_behavior_df = frame_df
         
     def merge_behavior_and_pose(self):
-        df1 = self.frame_behavior_df.copy()
+        """
+        Merges pose tracking and behavioral logs into a single DataFrame.
+        Adds processed metadata: outcome, side, delays, hand positions, etc.
+        
+        Returns:
+            pd.DataFrame: Merged frame-behavior DataFrame.
+        """
+        df1 = self.frame_behavior_df
         df2 = self.df.rename(columns={'frame_idx': 'frame', 'trial_idx':'trial'})
         merged = pd.merge(df1, df2, on='frame', how='left')
         merged['session'] = self.session
@@ -238,12 +272,56 @@ class Extractor:
                 'LH4_y', 'LH5_y','LWrist_y']
         merged['mean_L_y'] = merged[selected_cols].mean(axis=1)
         
+        selected_cols = ['LH1_log', 'LH2_log', 'LH3_log',
+                'LH4_log', 'LH5_log','LWrist_log']
+        merged['mean_L_log'] = merged[selected_cols].mean(axis=1)
+        
+        selected_cols = ['RH1_log', 'RH2_log', 'RH3_log',
+                'RH4_log', 'RH5_log','RWrist_log']
+        merged['mean_R_log'] = merged[selected_cols].mean(axis=1)
+        
+        # Interpolate bpod times using the frame rate
+        merged.set_index('frame_time', inplace=True)
+        merged['bpod_time_interp'] = merged['bpod_initial_time'].interpolate(method="time")
+        merged.reset_index(inplace=True)
+
+        # Create aligment timestamps for each trial
+        for event in ['ResponseWindow', 'StimulusTrigger', 'Motor_out', 'Motor_in', 'Delay']:
+            # Compute mean only from ResponseWindow rows
+            means = (
+                merged.loc[merged.msg == event]
+                    .groupby(["trial"])["bpod_time_interp"]
+                    .first()
+                    .rename(event)
+        )
+
+            # Map back to all rows of merged
+            merged[event] = merged.set_index(["trial"]).index.map(means)
+
+        merged['Delay'] = merged['Delay'].fillna(merged["Motor_in"])
+
+        for event in ['ResponseWindow', 'StimulusTrigger', 'Motor_out', 'Motor_in', 'Delay']:
+            # Compute mean only from ResponseWindow rows
+            merged['a_' + event] = merged['bpod_time_interp'] - merged[event]
+            
         return merged
    
    
 from matplotlib.animation import FFMpegWriter
 
 def create_video_trial(merged: pd.DataFrame, chosen_trial: int = 1, variable: str = "TipTongue"):
+    """
+    Generates a video of the chosen trial with overlaid tracking for a given variable (e.g., TipTongue).
+    
+    Args:
+        merged (pd.DataFrame): Merged pose + behavior dataframe.
+        chosen_trial (int): Trial number to visualize.
+        variable (str): Name of the tracked body part to plot (e.g., 'TipTongue').
+    
+    Saves:
+        MP4 file showing the tracked variable and its motion trail across video frames.
+    """
+    
     save_path = Path(r"C:\Users\tiffany.ona\Documents\working_memory\code\video_analysis\videos")
     session_path = save_path / str(merged.session.unique()[0])
 
@@ -295,7 +373,7 @@ def create_video_trial(merged: pd.DataFrame, chosen_trial: int = 1, variable: st
 
         this_likelihood = likelihoods.iloc[frame_idx]
 
-        if this_likelihood > 0.75:
+        if this_likelihood > 0.65:
             this_x = x.iloc[frame_idx]
             this_y = y.iloc[frame_idx]
             scat.set_offsets([[this_x, this_y]])
@@ -304,7 +382,7 @@ def create_video_trial(merged: pd.DataFrame, chosen_trial: int = 1, variable: st
             trail_y.append(this_y)
         else:
             # Hide the point if likelihood is low
-            scat.set_offsets(np.empty((0, 2)))
+            scat.set_offsets([[np.nan, np.nan]])
 
             # Optionally: do not add to trail or add NaN to keep gaps
             trail_x.append(np.nan)
@@ -335,3 +413,100 @@ def create_video_trial(merged: pd.DataFrame, chosen_trial: int = 1, variable: st
 
     cap.release()
     plt.show()
+    
+def create_video_trial_multi(merged: pd.DataFrame, video_path: Path, chosen_trial: int = 1, variables: list = ["TipTongue"]):
+    """
+    Generates a video of the chosen trial with overlaid tracking for multiple variables.
+    
+    Args:
+        merged (pd.DataFrame): Merged pose + behavior dataframe.
+        chosen_trial (int): Trial number to visualize.
+        variables (list): List of body part names to track (e.g., ['TipTongue', 'UpperLip']).
+    
+    Saves:
+        MP4 file showing tracked points and trails over video frames.
+    """
+    
+    save_path = Path(r"C:\Users\tiffany.ona\Documents\working_memory\code\video_analysis\videos")
+    session_path = save_path / str(merged.session.unique()[0])
+    # video_path = base_path / merged.subject.unique()[0] / str(merged.session.unique()[0] + ".mp4")
+    cap = cv2.VideoCapture(video_path)
+
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Could not open video file: {video_path}")
+
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    df_trial = merged.loc[(merged.trial == chosen_trial)]
+
+    # Preload data
+    data = {}
+    for var in variables:
+        data[var] = {
+            "x": df_trial[f"{var}_x"].reset_index(drop=True),
+            "y": df_trial[f"{var}_y"].reset_index(drop=True),
+            "log": df_trial[f"{var}_log"].reset_index(drop=True),
+            "trail_x": [],
+            "trail_y": []
+        }
+
+    video_frames = df_trial["frame"].reset_index(drop=True)
+
+    # --- Plot Setup ---
+    fig, ax = plt.subplots()
+    im = ax.imshow(np.zeros((frame_height, frame_width, 3), dtype=np.uint8), origin='upper')
+    scatters = {var: ax.scatter([], [], s=50, label=var) for var in variables}
+    trails = {var: ax.plot([], [], alpha=0.6)[0] for var in variables}
+    trail_window = 40  # ~2 sec at 20 FPS
+
+    ax.set_xlim(0, frame_width)
+    ax.set_ylim(frame_height, 0)
+    ax.set_aspect('equal')
+    ax.set_title("Tracking Over Video")
+    ax.set_xlabel("X (pixels)")
+    ax.set_ylabel("Y (pixels)")
+    ax.legend(loc='upper right')
+
+    def update(frame_idx):
+        video_frame = video_frames.iloc[frame_idx]
+        cap.set(cv2.CAP_PROP_POS_FRAMES, video_frame)
+        ret, frame = cap.read()
+        if not ret:
+            print(f"Frame {video_frame} not read properly.")
+            return
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        im.set_data(frame_rgb)
+
+        for var in variables:
+            this_log = data[var]["log"].iloc[frame_idx]
+            if this_log > 0.75:
+                x = data[var]["x"].iloc[frame_idx]
+                y = data[var]["y"].iloc[frame_idx]
+                scatters[var].set_offsets([[x, y]])
+                data[var]["trail_x"].append(x)
+                data[var]["trail_y"].append(y)
+            else:
+                scatters[var].set_offsets(np.empty((0, 2)))
+                data[var]["trail_x"].append(np.nan)
+                data[var]["trail_y"].append(np.nan)
+
+            if len(data[var]["trail_x"]) > trail_window:
+                data[var]["trail_x"].pop(0)
+                data[var]["trail_y"].pop(0)
+
+            clean_x = [pt for pt in data[var]["trail_x"] if not np.isnan(pt)]
+            clean_y = [pt for pt in data[var]["trail_y"] if not np.isnan(pt)]
+            trails[var].set_data(clean_x, clean_y)
+
+        return [im] + list(scatters.values()) + list(trails.values())
+
+    ani = animation.FuncAnimation(fig, update, frames=len(video_frames), interval=50, blit=False)
+
+    video_out = save_path / f"{merged.session.unique()[0]}_trial{chosen_trial}_multi.mp4"
+    writer = FFMpegWriter(fps=33, codec='libx264', bitrate=2000, extra_args=['-pix_fmt', 'yuv420p'])
+    ani.save(str(video_out), writer=writer)
+
+    cap.release()
+    plt.close()
