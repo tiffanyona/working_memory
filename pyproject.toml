@@ -17,5 +17,6 @@ dependencies = [
   "ipykernel>=6.25",
   "matplotlib",
   "tables", 
-  "scikit-learn"
+  "scikit-learn", 
+  "seaborn"
 ]
