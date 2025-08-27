@@ -4,6 +4,7 @@ datasets/
 data/
 extra_frames/ 
 videos/
+examples/
 
 # Ignore Python bytecode
 __pycache__/
