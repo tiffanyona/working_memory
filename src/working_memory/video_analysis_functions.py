@@ -256,6 +256,9 @@ class Extractor:
 
         merged['vector_answer'] = np.where(merged['outcome'] == 1, merged['reward_side'], 1 - merged['reward_side'])
 
+        aw_trial = float(merged.loc[merged.msg == 'VAR_AW']['info_'].iloc[0])
+        merged['AW'] = np.where(merged['trial'] <= aw_trial, 1, 0)
+        
         selected_cols = ['RH1_x', 'RH2_x', 'RH3_x',
                 'RH4_x', 'RH5_x','RWrist_x']
         merged['mean_R_x'] = merged[selected_cols].mean(axis=1)
@@ -280,6 +283,12 @@ class Extractor:
                 'RH4_log', 'RH5_log','RWrist_log']
         merged['mean_R_log'] = merged[selected_cols].mean(axis=1)
         
+        # For each trial, mark the first occurrence of "New trial"
+        first_idx = merged.groupby('trial').head(1).index
+
+        merged.loc[first_idx, 'msg'] = 'New trial'
+        merged.loc[first_idx, 'bpod_initial_time'] = 0
+
         # Interpolate bpod times using the frame rate
         merged.set_index('frame_time', inplace=True)
         merged['bpod_time_interp'] = merged['bpod_initial_time'].interpolate(method="time")
